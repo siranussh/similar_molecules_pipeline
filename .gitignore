@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+airflow.db
+airflow.cfg
+logs/
+standalone_admin_password.txt
+*.parquet
+data/
+.DS_Store
+.vscode/
+.idea/
