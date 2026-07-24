@@ -105,7 +105,7 @@ if __name__ == "__main__":
     connection = get_connection()
 
     fetch_start = time.perf_counter()
-    structures = fetch_structures(connection, limit=5000)
+    structures = fetch_structures(connection, limit=None)
     fetch_elapsed = time.perf_counter() - fetch_start
     print(f"Fetched {len(structures)} structures in {fetch_elapsed:.2f}s.")
 
@@ -115,8 +115,8 @@ if __name__ == "__main__":
     print(f"Fingerprinted {len(fingerprinted)} molecules "
           f"({failed_count} failed) in {fingerprint_elapsed:.2f}s.")
 
-    source_molecules = select_source_molecules(fingerprinted, count=3)
-    print(f"Selected {len(source_molecules)} source molecules for testing.")
+    source_molecules = select_source_molecules(fingerprinted, count=100)
+    print(f"Selected {len(source_molecules)} source molecules.")
 
     connection.close()
 
