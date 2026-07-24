@@ -30,7 +30,7 @@ def ingest_molecule_dictionary(limit=None):
 
 def ingest_compound_properties(limit=None):
     query = (
-        "SELECT molregno, mw_freebase, alogp, hba, hbd, psa, "
+        "SELECT molregno, mw_freebase, full_mwt, alogp, hba, hbd, psa, "
         "aromatic_rings, heavy_atoms, qed_weighted "
         "FROM compound_properties"
     )
