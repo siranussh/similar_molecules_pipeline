@@ -14,10 +14,84 @@ def notify_teams_on_failure(context):
     if webhook_url is None:
         return
 
-    task_id = context["task_instance"].task_id
-    dag_id = context["task_instance"].dag_id
+    task_instance = context["task_instance"]
+    task_id = task_instance.task_id
+    dag_id = task_instance.dag_id
+    try_number = task_instance.try_number
+    execution_date = context.get("logical_date", context.get("ds"))
+    log_url = task_instance.log_url
+
     message = {
-        "text": f"Airflow task failed: {dag_id}.{task_id}"
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": (
+                        "http://adaptivecards.io/schemas/"
+                        "adaptive-card.json"
+                    ),
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": "Airflow task failed",
+                            "weight": "Bolder",
+                            "size": "Medium",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": f"DAG: {dag_id}",
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": f"Task: {task_id}",
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": f"Try number: {try_number}",
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": f"Run date: {execution_date}",
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": f"Logs: {log_url}",
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": (
+                                "Contact: siranush.hakobyan@quantori.academy"
+                            ),
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": (
+                                "PS: don't buy a laptop with 8GB RAM 🥲"
+                            ),
+                            "wrap": True,
+                            "isSubtle": True,
+                        },
+                        {
+                            "type": "Image",
+                            "url": (
+                                "https://media1.tenor.com/m/"
+                                "9PR5loGMyLQAAAAC/shocked-wow.gif"
+                            ),
+                            "size": "Medium",
+                        },
+                    ],
+                },
+            }
+        ],
     }
     requests.post(webhook_url, json=message)
 
