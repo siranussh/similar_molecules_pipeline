@@ -65,23 +65,33 @@ def save_to_parquet(dataframe, output_dir, filename):
 
 
 def run_ingestion(output_dir="ingested_data", limit=None):
-    id_lookup = ingest_chembl_id_lookup(limit)
-    molecule_dict = ingest_molecule_dictionary(limit)
-    properties = ingest_compound_properties(limit)
-    structures = ingest_compound_structures(limit)
-
-    tables = {
-        "chembl_id_lookup.parquet": id_lookup,
-        "molecule_dictionary.parquet": molecule_dict,
-        "compound_properties.parquet": properties,
-        "compound_structures.parquet": structures,
-    }
-
     saved_paths = {}
 
-    for filename, dataframe in tables.items():
-        path = save_to_parquet(dataframe, output_dir, filename)
-        saved_paths[filename] = (path, len(dataframe))
+    id_lookup = ingest_chembl_id_lookup(limit)
+    path = save_to_parquet(id_lookup, output_dir, "chembl_id_lookup.parquet")
+    saved_paths["chembl_id_lookup.parquet"] = (path, len(id_lookup))
+    del id_lookup
+
+    molecule_dict = ingest_molecule_dictionary(limit)
+    path = save_to_parquet(
+        molecule_dict, output_dir, "molecule_dictionary.parquet"
+    )
+    saved_paths["molecule_dictionary.parquet"] = (path, len(molecule_dict))
+    del molecule_dict
+
+    properties = ingest_compound_properties(limit)
+    path = save_to_parquet(
+        properties, output_dir, "compound_properties.parquet"
+    )
+    saved_paths["compound_properties.parquet"] = (path, len(properties))
+    del properties
+
+    structures = ingest_compound_structures(limit)
+    path = save_to_parquet(
+        structures, output_dir, "compound_structures.parquet"
+    )
+    saved_paths["compound_structures.parquet"] = (path, len(structures))
+    del structures
 
     return saved_paths
 
