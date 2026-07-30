@@ -2,6 +2,10 @@ import os
 
 import chembl_downloader
 
+DEFAULT_OUTPUT_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "ingested_data"
+)
+
 
 def ingest_chembl_id_lookup(limit=None):
     query = (
@@ -64,7 +68,10 @@ def save_to_parquet(dataframe, output_dir, filename):
     return output_path
 
 
-def run_ingestion(output_dir="ingested_data", limit=None):
+def run_ingestion(output_dir=None, limit=None):
+    if output_dir is None:
+        output_dir = DEFAULT_OUTPUT_DIR
+
     saved_paths = {}
 
     id_lookup = ingest_chembl_id_lookup(limit)

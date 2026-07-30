@@ -3,6 +3,8 @@ import time
 
 import pandas as pd
 import psycopg2
+import pyarrow as pa
+import pyarrow.parquet as pq
 from dotenv import load_dotenv
 
 from fingerprints import compute_morgan_fingerprint
@@ -23,28 +25,26 @@ def get_connection():
     )
 
 
-def fetch_structures(connection, limit=None):
+def fetch_structures_batch(connection, offset, batch_size):
     query = (
         "SELECT md.chembl_id, cs.canonical_smiles "
         "FROM bronze.molecule_dictionary md "
         "JOIN bronze.compound_structures cs "
         "ON md.molregno = cs.molregno "
         "WHERE cs.canonical_smiles IS NOT NULL "
-        "ORDER BY md.chembl_id"
+        "ORDER BY md.chembl_id "
+        "LIMIT %s OFFSET %s"
     )
 
-    if limit is not None:
-        query += f" LIMIT {limit}"
-
     cursor = connection.cursor()
-    cursor.execute(query)
+    cursor.execute(query, (batch_size, offset))
     rows = cursor.fetchall()
     cursor.close()
 
     return rows
 
 
-def fingerprint_and_collect(structures):
+def fingerprint_batch(structures):
     chembl_ids = []
     on_bits_list = []
     failed_count = 0
@@ -67,34 +67,59 @@ def fingerprint_and_collect(structures):
     return dataframe, failed_count
 
 
-def save_and_upload(dataframe, local_path, bucket, s3_key):
-    dataframe.to_parquet(local_path, index=False)
-    uploaded_uri = upload_file(local_path, bucket, s3_key)
-    return uploaded_uri
+def run_fingerprint_and_save(
+    connection, local_path, batch_size=200000
+):
+    offset = 0
+    total_written = 0
+    total_failed = 0
+    writer = None
+
+    while True:
+        structures = fetch_structures_batch(connection, offset, batch_size)
+
+        if len(structures) == 0:
+            break
+
+        dataframe, failed_count = fingerprint_batch(structures)
+        total_failed += failed_count
+
+        table = pa.Table.from_pandas(dataframe, preserve_index=False)
+
+        if writer is None:
+            writer = pq.ParquetWriter(local_path, table.schema)
+
+        writer.write_table(table)
+        total_written += len(dataframe)
+
+        offset += batch_size
+
+    if writer is not None:
+        writer.close()
+
+    return total_written, total_failed
 
 
 if __name__ == "__main__":
     connection = get_connection()
 
-    fetch_start = time.perf_counter()
-    structures = fetch_structures(connection, limit=None)
-    fetch_elapsed = time.perf_counter() - fetch_start
-    print(f"Fetched {len(structures)} structures in {fetch_elapsed:.2f}s.")
+    local_path = "fingerprints.parquet"
 
-    fingerprint_start = time.perf_counter()
-    dataframe, failed_count = fingerprint_and_collect(structures)
-    fingerprint_elapsed = time.perf_counter() - fingerprint_start
-    print(f"Fingerprinted {len(dataframe)} molecules "
-          f"({failed_count} failed) in {fingerprint_elapsed:.2f}s.")
+    process_start = time.perf_counter()
+    total_written, total_failed = run_fingerprint_and_save(
+        connection, local_path
+    )
+    process_elapsed = time.perf_counter() - process_start
+    print(f"Fingerprinted {total_written} molecules "
+          f"({total_failed} failed) in {process_elapsed:.2f}s.")
 
     connection.close()
 
-    local_path = "fingerprints.parquet"
     bucket = os.environ["S3_BUCKET"]
     subfolder = os.environ["S3_SUBFOLDER"]
     s3_key = f"{subfolder}/fingerprints.parquet"
 
     upload_start = time.perf_counter()
-    uploaded_uri = save_and_upload(dataframe, local_path, bucket, s3_key)
+    uploaded_uri = upload_file(local_path, bucket, s3_key)
     upload_elapsed = time.perf_counter() - upload_start
-    print(f"Saved and uploaded to {uploaded_uri} in {upload_elapsed:.2f}s.")
+    print(f"Uploaded to {uploaded_uri} in {upload_elapsed:.2f}s.")
