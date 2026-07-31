@@ -131,6 +131,14 @@ I built and verified all 5 required views:
 4. **similarity_chain** — for each source, shows its most similar match and that match's own most similar match
 5. **avg_similarity_grouped** — similarity averages grouped at 4 different levels, using `GROUPING SETS`/`ROLLUP` with a "TOTAL" label for the overall average (no `UNION`, per the requirements)
 
+## Final verified run
+
+Every task in this DAG succeeded for real, with nothing manually marked as complete:
+
+![All tasks succeeded](docs/full_dag_success.png)
+
+Total actual runtime (summing each task's own duration) is around **1 hour 46 minutes**: `run_ingestion` ~2.5 min, `load_to_bronze` ~27 min, `populate_dim_molecule` <1 min, `compute_similarity` ~27 min, then `upload_fingerprints_to_s3` and `compute_full_similarity_to_s3` run one after another (~22 min and ~27 min, since they share a 1-slot pool to avoid memory contention) and `create_views` finishes in seconds. I've noted this explicitly because the Airflow UI's own "Duration" field for this run shows over a day — that's just the wall-clock gap between when I first started this run and when I finally cleared the last retry, not how long the pipeline itself actually takes to execute.
+
 ## Sample results
 
 Sample output from `gold.fact_similarity` for source molecule `CHEMBL1` (aspirin):
