@@ -18,7 +18,17 @@ def get_connection():
     password = os.environ["DB_PASSWORD"]
 
     return psycopg2.connect(
-        host=host, port=port, dbname=database, user=user, password=password
+        host=host,
+        port=port,
+        dbname=database,
+        user=user,
+        password=password,
+        connect_timeout=10,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=3,
+        options="-c statement_timeout=600000",
     )
 
 
@@ -98,32 +108,63 @@ def compute_top10_for_source(source_id, source_fp, fingerprinted):
 
 def compute_all_similarities(source_molecules, fingerprinted):
     all_results = []
+    total = len(source_molecules)
 
-    for source_id, source_fp in source_molecules:
+    for index, (source_id, source_fp) in enumerate(source_molecules, 1):
+        source_start = time.perf_counter()
+
         top10 = compute_top10_for_source(source_id, source_fp, fingerprinted)
 
         for target_id, score, is_boundary_row in top10:
             all_results.append((source_id, target_id, score, is_boundary_row))
 
+        source_elapsed = time.perf_counter() - source_start
+        print(
+            f"source {index}/{total}: {source_id} done "
+            f"in {source_elapsed:.2f}s"
+        )
+
     return all_results
 
 
-def write_to_fact_similarity(connection, results):
-    cursor = connection.cursor()
-    cursor.execute("TRUNCATE TABLE gold.fact_similarity")
+def write_to_fact_similarity(connection, results, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            cursor = connection.cursor()
+            cursor.execute("TRUNCATE TABLE gold.fact_similarity")
 
-    insert_sql = (
-        "INSERT INTO gold.fact_similarity "
-        "(source_chembl_id, target_chembl_id, similarity_score, "
-        "has_duplicates_of_last_largest_score) "
-        "VALUES (%s, %s, %s, %s)"
-    )
-    cursor.executemany(insert_sql, results)
+            insert_sql = (
+                "INSERT INTO gold.fact_similarity "
+                "(source_chembl_id, target_chembl_id, similarity_score, "
+                "has_duplicates_of_last_largest_score) "
+                "VALUES (%s, %s, %s, %s)"
+            )
+            cursor.executemany(insert_sql, results)
 
-    connection.commit()
-    cursor.close()
+            connection.commit()
+            cursor.close()
 
-    return len(results)
+            return len(results), connection
+        except psycopg2.OperationalError as error:
+            print(f"write_to_fact_similarity attempt "
+                  f"{attempt + 1} failed: {error}")
+
+            try:
+                connection.rollback()
+            except psycopg2.OperationalError:
+                pass
+
+            try:
+                connection.close()
+            except psycopg2.OperationalError:
+                pass
+
+            if attempt == max_retries - 1:
+                raise
+
+            print("write_to_fact_similarity: reconnecting before retry")
+            time.sleep(5)
+            connection = get_connection()
 
 
 if __name__ == "__main__":
@@ -149,7 +190,7 @@ if __name__ == "__main__":
     print(f"Computed {len(results)} similarity rows "
           f"in {similarity_elapsed:.2f}s.")
 
-    write_count = write_to_fact_similarity(connection, results)
+    write_count, connection = write_to_fact_similarity(connection, results)
     print(f"Wrote {write_count} rows to gold.fact_similarity.")
 
     connection.close()

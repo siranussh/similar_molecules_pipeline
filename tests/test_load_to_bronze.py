@@ -3,6 +3,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import psycopg2
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -34,7 +35,7 @@ def test_load_parquet_to_table_truncates_and_copies(tmp_path):
         "TRUNCATE TABLE bronze.chembl_id_lookup"
     )
     assert cursor.copy_expert.called
-    connection.commit.assert_called_once()
+    assert connection.commit.call_count == 2
     assert row_count == 2
 
 
@@ -78,6 +79,81 @@ def test_load_parquet_to_table_processes_multiple_batches(tmp_path):
 
     assert row_count == 10
     assert cursor.copy_expert.call_count == 4
+
+
+def test_load_parquet_to_table_retries_on_operational_error(tmp_path):
+    connection, cursor = make_mock_connection()
+    dataframe = pd.DataFrame({
+        "chembl_id": ["CHEMBL1", "CHEMBL2"],
+        "status": ["ACTIVE", "ACTIVE"],
+    })
+    parquet_path = os.path.join(tmp_path, "test.parquet")
+    dataframe.to_parquet(parquet_path, index=False)
+
+    cursor.copy_expert.side_effect = [
+        psycopg2.OperationalError("connection already closed"),
+        None,
+    ]
+
+    with patch.object(load_to_bronze.time, "sleep"):
+        row_count = load_to_bronze.load_parquet_to_table(
+            connection, parquet_path, "bronze", "chembl_id_lookup",
+            ["chembl_id", "status"],
+        )
+
+    assert row_count == 2
+    assert cursor.copy_expert.call_count == 2
+    assert connection.rollback.call_count == 1
+
+
+def test_load_parquet_to_table_raises_after_max_retries(tmp_path):
+    connection, cursor = make_mock_connection()
+    dataframe = pd.DataFrame({
+        "chembl_id": ["CHEMBL1", "CHEMBL2"],
+        "status": ["ACTIVE", "ACTIVE"],
+    })
+    parquet_path = os.path.join(tmp_path, "test.parquet")
+    dataframe.to_parquet(parquet_path, index=False)
+
+    cursor.copy_expert.side_effect = psycopg2.OperationalError(
+        "connection already closed"
+    )
+
+    with patch.object(load_to_bronze.time, "sleep"):
+        try:
+            load_to_bronze.load_parquet_to_table(
+                connection, parquet_path, "bronze", "chembl_id_lookup",
+                ["chembl_id", "status"], max_retries=3,
+            )
+            assert False, "expected OperationalError to be raised"
+        except psycopg2.OperationalError:
+            pass
+
+    assert cursor.copy_expert.call_count == 3
+    assert connection.rollback.call_count == 3
+
+
+def test_get_connection_passes_keepalive_and_timeout_options():
+    env = {
+        "DB_HOST": "127.0.0.1",
+        "DB_PORT": "5433",
+        "DB_NAME": "shakobyan_db",
+        "DB_USER": "shakobyan",
+        "DB_PASSWORD": "secret",
+    }
+
+    with patch.dict(os.environ, env), patch.object(
+        load_to_bronze.psycopg2, "connect"
+    ) as mock_connect:
+        load_to_bronze.get_connection()
+
+    _, kwargs = mock_connect.call_args
+    assert kwargs["connect_timeout"] == 10
+    assert kwargs["keepalives"] == 1
+    assert kwargs["keepalives_idle"] == 30
+    assert kwargs["keepalives_interval"] == 10
+    assert kwargs["keepalives_count"] == 3
+    assert kwargs["options"] == "-c statement_timeout=120000"
 
 
 def test_load_chembl_id_lookup_calls_shared_loader_correctly(tmp_path):

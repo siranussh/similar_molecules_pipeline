@@ -138,12 +138,12 @@ with DAG(
 
     run_ingestion = BashOperator(
         task_id="run_ingestion",
-        bash_command="python /opt/airflow/src/run_full_ingestion.py",
+        bash_command="python -u /opt/airflow/src/run_full_ingestion.py",
     )
 
     load_to_bronze = BashOperator(
         task_id="load_to_bronze",
-        bash_command="python /opt/airflow/src/load_to_bronze.py",
+        bash_command="python -u /opt/airflow/src/load_to_bronze.py",
     )
 
     populate_dim_molecule = PythonOperator(
@@ -154,18 +154,26 @@ with DAG(
 
     compute_similarity = BashOperator(
         task_id="compute_similarity",
-        bash_command="python /opt/airflow/src/compute_similarity.py",
+        bash_command="python -u /opt/airflow/src/compute_similarity.py",
     )
 
+    # upload_fingerprints_to_s3 and compute_full_similarity_to_s3 each
+    # independently fingerprint all ~2.9M molecules into memory. Running
+    # both at once caused an OOM kill on the 8GB Mac, so they share a
+    # 1-slot pool to force them to run one at a time instead of relying
+    # on manual timing.
     upload_fingerprints_to_s3 = BashOperator(
         task_id="upload_fingerprints_to_s3",
-        bash_command="python /opt/airflow/src/upload_fingerprints_to_s3.py",
+        bash_command="python -u /opt/airflow/src/"
+                     "upload_fingerprints_to_s3.py",
+        pool="memory_heavy",
     )
 
     compute_full_similarity_to_s3 = BashOperator(
         task_id="compute_full_similarity_to_s3",
-        bash_command="python /opt/airflow/src/"
+        bash_command="python -u /opt/airflow/src/"
                      "compute_full_similarity_to_s3.py",
+        pool="memory_heavy",
     )
 
     create_views = PythonOperator(
