@@ -133,11 +133,11 @@ I built and verified all 5 required views:
 
 ## Final verified run
 
-Every task in this DAG succeeded for real, with nothing manually marked as complete:
+Every task in this DAG succeeded for real, on the first try, with no retries needed anywhere:
 
 ![All tasks succeeded](docs/full_dag_success.png)
 
-Total actual runtime (summing each task's own duration) is around **1 hour 46 minutes**: `run_ingestion` ~2.5 min, `load_to_bronze` ~27 min, `populate_dim_molecule` <1 min, `compute_similarity` ~27 min, then `upload_fingerprints_to_s3` and `compute_full_similarity_to_s3` run one after another (~22 min and ~27 min, since they share a 1-slot pool to avoid memory contention) and `create_views` finishes in seconds. I've noted this explicitly because the Airflow UI's own "Duration" field for this run shows over a day — that's just the wall-clock gap between when I first started this run and when I finally cleared the last retry, not how long the pipeline itself actually takes to execute.
+Total actual runtime (summing each task's own duration) is about **1 hour 50 minutes**: `run_ingestion` ~2 min, `load_to_bronze` ~27 min, `populate_dim_molecule` <1 min, `compute_similarity` ~27 min, then `upload_fingerprints_to_s3` and `compute_full_similarity_to_s3` run one after another (~18 min and ~28 min, since they share a 1-slot pool to avoid memory contention), and `create_views` finishes in about 7 seconds. I've noted this explicitly because the Airflow UI's own "Duration" field for a DAG run reflects wall-clock time from start to finish, which can look much longer if a run gets paused or interrupted along the way — the numbers above are each task's genuine execution time.
 
 ## Sample results
 
